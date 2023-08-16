@@ -49,7 +49,7 @@ namespace IMGUIZMO_NAMESPACE
 	static const float DEG2RAD = (ZPI / 180.f);
 	const float screenRotateSize = 0.06f;
 	// scale a bit so translate axis do not touch when in universal
-	const float rotationDisplayFactor = 1.2f;
+	const float rotationDisplayFactor = 1.f;
 
 	static OPERATION operator&(OPERATION lhs, OPERATION rhs)
 	{
@@ -765,7 +765,6 @@ namespace IMGUIZMO_NAMESPACE
 		float mReferenceHeight = 720.f;
 		float mReferenceDistance = 10.f;
 
-		float mRotateManipulatorScaleFactor = 0.9f;
 	};
 
 	static Context gContext;
@@ -1047,7 +1046,7 @@ namespace IMGUIZMO_NAMESPACE
 		}
 	}
 
-	static void ComputeContext(const float* view, const float* projection, float* matrix, MODE mode)
+	static void ComputeContext(const float* cameraPos, const float* view, const float* projection, float* matrix, MODE mode)
 	{
 		gContext.mMode = mode;
 		gContext.mViewMat = *(matrix_t*)view;
@@ -1099,17 +1098,37 @@ namespace IMGUIZMO_NAMESPACE
 		gContext.mScreenFactor = gContext.mGizmoSizeClipSpace / rightLength;*/
 
 
-		auto _camPos = ((matrix_t*)view)->v.position;
 		auto _modelPos = ((matrix_t*)matrix)->v.position;
 
-		float dist = (_camPos - _modelPos).Length();
+		float deltaX = cameraPos[0] - _modelPos.x;
+		float deltaY = cameraPos[1] - _modelPos.y;
+		float deltaZ = cameraPos[2] - _modelPos.z;
 
-		gContext.mScreenFactor = (gContext.mReferenceHeight / gContext.mHeight) * (dist / gContext.mReferenceDistance) * gContext.mSize;
+		glm::vec3 cameraPosition = {
+			cameraPos[0],
+			cameraPos[1],
+			cameraPos[2]
+		};
 
+		glm::vec3 modelPos = {
+			_modelPos.x,
+			_modelPos.y,
+			_modelPos.z
+		};
 
-		/*float factor = (gContext.mReferenceHeight / gContext.mHeight) * gContext.mSize;
+		//float dist = sqrtf(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+
+		float dist = glm::length(modelPos - cameraPosition);
+
+		float factor = (gContext.mReferenceHeight / gContext.mHeight) * gContext.mSize;
 		factor *= (dist / gContext.mReferenceDistance);
-		gContext.mScreenFactor = factor;*/
+
+		/*if (factor > 10.f)
+		{
+			factor = 10.f + (factor - 10.f) / 2.f;
+		}*/
+
+		gContext.mScreenFactor = factor;
 
 		ImVec2 centerSSpace = worldToPos(makeVect(0.f, 0.f), gContext.mMVP);
 		gContext.mScreenSquareCenter = centerSSpace;
@@ -1285,9 +1304,7 @@ namespace IMGUIZMO_NAMESPACE
 
 		cameraToModelNormalized.TransformVector(gContext.mModelInverse);
 
-		gContext.mRadiusSquareCenter = screenRotateSize * gContext.mHeight;
-
-		float finalScreenFactor = gContext.mRotateManipulatorScaleFactor * gContext.mScreenFactor;
+		gContext.mRadiusSquareCenter = screenRotateSize *gContext.mHeight;
 
 		bool hasRSC = Intersects(op, ROTATE_SCREEN);
 		for (int axis = 0; axis < 3; axis++)
@@ -1307,7 +1324,7 @@ namespace IMGUIZMO_NAMESPACE
 			{
 				float ng = angleStart + (float)circleMul * ZPI * ((float)i / (float)(circleMul * halfCircleSegmentCount));
 				vec_t axisPos = makeVect(cosf(ng), sinf(ng), 0.f);
-				vec_t pos = makeVect(axisPos[axis], axisPos[(axis + 1) % 3], axisPos[(axis + 2) % 3]) * finalScreenFactor * rotationDisplayFactor;
+				vec_t pos = makeVect(axisPos[axis], axisPos[(axis + 1) % 3], axisPos[(axis + 2) % 3]) * gContext.mScreenFactor * rotationDisplayFactor;
 				circlePos[i] = worldToPos(pos, gContext.mMVP);
 			}
 			if (!gContext.mbUsing || usingAxis)
@@ -1338,7 +1355,7 @@ namespace IMGUIZMO_NAMESPACE
 				rotateVectorMatrix.RotationAxis(gContext.mTranslationPlan, ng);
 				vec_t pos;
 				pos.TransformPoint(gContext.mRotationVectorSource, rotateVectorMatrix);
-				pos *= finalScreenFactor * rotationDisplayFactor;
+				pos *= gContext.mScreenFactor * rotationDisplayFactor;
 				circlePos[i] = worldToPos(pos + gContext.mModel.v.position, gContext.mViewProjection);
 			}
 			drawList->AddConvexPolyFilled(circlePos, halfCircleSegmentCount + 1, GetColorU32(ROTATION_USING_FILL));
@@ -1512,9 +1529,9 @@ namespace IMGUIZMO_NAMESPACE
 					*/
 #endif
 					drawList->AddCircleFilled(worldDirSSpace, 12.f, colors[i + 1]);
-				}
 			}
 		}
+	}
 
 		// draw screen cirle
 		drawList->AddCircle(gContext.mScreenSquareCenter, 20.f, colors[0], 32, gContext.mStyle.CenterCircleSize);
@@ -1537,7 +1554,7 @@ namespace IMGUIZMO_NAMESPACE
 			drawList->AddText(ImVec2(destinationPosOnScreen.x + 15, destinationPosOnScreen.y + 15), GetColorU32(TEXT_SHADOW), tmps);
 			drawList->AddText(ImVec2(destinationPosOnScreen.x + 14, destinationPosOnScreen.y + 14), GetColorU32(TEXT), tmps);
 		}
-	}
+}
 
 	static void DrawTranslationGizmo(OPERATION op, int type)
 	{
@@ -2016,8 +2033,6 @@ namespace IMGUIZMO_NAMESPACE
 		vec_t modelViewPos;
 		modelViewPos.TransformPoint(gContext.mModel.v.position, gContext.mViewMat);
 
-		float finalScreenFactor = gContext.mRotateManipulatorScaleFactor * gContext.mScreenFactor;
-
 		for (int i = 0; i < 3 && type == MT_NONE; i++)
 		{
 			if (!Intersects(op, static_cast<OPERATION>(ROTATE_X << i)))
@@ -2040,7 +2055,7 @@ namespace IMGUIZMO_NAMESPACE
 			const vec_t localPos = intersectWorldPos - gContext.mModel.v.position;
 			vec_t idealPosOnCircle = Normalized(localPos);
 			idealPosOnCircle.TransformVector(gContext.mModelInverse);
-			const ImVec2 idealPosOnCircleScreen = worldToPos(idealPosOnCircle * rotationDisplayFactor * finalScreenFactor, gContext.mMVP);
+			const ImVec2 idealPosOnCircleScreen = worldToPos(idealPosOnCircle * rotationDisplayFactor * gContext.mScreenFactor, gContext.mMVP);
 
 			//gContext.mDrawList->AddCircle(idealPosOnCircleScreen, 5.f, IM_COL32_WHITE);
 			const ImVec2 distanceOnScreen = idealPosOnCircleScreen - io.MousePos;
@@ -2116,7 +2131,7 @@ namespace IMGUIZMO_NAMESPACE
 		if (!Intersects(op, TRANSLATE) || type != MT_NONE)
 		{
 			return false;
-		}
+	}
 		const ImGuiIO& io = ImGui::GetIO();
 		const bool applyRotationLocaly = gContext.mMode == LOCAL || type == MT_MOVE_SCREEN;
 		bool modified = false;
@@ -2191,7 +2206,7 @@ namespace IMGUIZMO_NAMESPACE
 			}
 
 			type = gContext.mCurrentOperation;
-		}
+			}
 		else
 		{
 			// find new possible way to move
@@ -2231,7 +2246,7 @@ namespace IMGUIZMO_NAMESPACE
 			}
 		}
 		return modified;
-	}
+		}
 
 	static bool HandleScale(float* matrix, float* deltaMatrix, OPERATION op, int& type, const float* snap)
 	{
@@ -2352,7 +2367,7 @@ namespace IMGUIZMO_NAMESPACE
 			type = gContext.mCurrentOperation;
 		}
 		return modified;
-	}
+		}
 
 	static bool HandleRotation(float* matrix, float* deltaMatrix, OPERATION op, int& type, const float* snap)
 	{
@@ -2461,7 +2476,7 @@ namespace IMGUIZMO_NAMESPACE
 			type = gContext.mCurrentOperation;
 		}
 		return modified;
-	}
+		}
 
 	void DecomposeMatrixToComponents(const float* matrix, float* translation, float* rotation, float* scale)
 	{
@@ -2532,10 +2547,10 @@ namespace IMGUIZMO_NAMESPACE
 		gContext.mPlaneLimit = value;
 	}
 
-	bool Manipulate(const float* view, const float* projection, OPERATION operation, MODE mode, float* matrix, float* deltaMatrix, const float* snap, const float* localBounds, const float* boundsSnap)
+	bool Manipulate(const float* cameraPos, const float* view, const float* projection, OPERATION operation, MODE mode, float* matrix, float* deltaMatrix, const float* snap, const float* localBounds, const float* boundsSnap)
 	{
 		// Scale is always local or matrix will be skewed when applying world scale or oriented matrix
-		ComputeContext(view, projection, matrix, (operation & SCALE) ? LOCAL : mode);
+		ComputeContext(cameraPos, view, projection, matrix, (operation & SCALE) ? LOCAL : mode);
 
 		// set delta to identity
 		if (deltaMatrix)
@@ -2790,14 +2805,14 @@ namespace IMGUIZMO_NAMESPACE
 		}
 	}
 
-	void ViewManipulate(float* view, const float* projection, OPERATION operation, MODE mode, float* matrix, float length, ImVec2 position, ImVec2 size, ImU32 backgroundColor)
+	void ViewManipulate(const float* cameraPos, float* view, const float* projection, OPERATION operation, MODE mode, float* matrix, float length, ImVec2 position, ImVec2 size, ImU32 backgroundColor)
 	{
 		// Scale is always local or matrix will be skewed when applying world scale or oriented matrix
-		ComputeContext(view, projection, matrix, (operation & SCALE) ? LOCAL : mode);
-		ViewManipulate(view, length, position, size, backgroundColor);
+		ComputeContext(cameraPos, view, projection, matrix, (operation & SCALE) ? LOCAL : mode);
+		ViewManipulate(cameraPos, view, length, position, size, backgroundColor);
 	}
 
-	void ViewManipulate(float* view, float length, ImVec2 position, ImVec2 size, ImU32 backgroundColor)
+	void ViewManipulate(const float* cameraPos, float* view, float length, ImVec2 position, ImVec2 size, ImU32 backgroundColor)
 	{
 		static bool isDraging = false;
 		static bool isClicking = false;
@@ -3018,6 +3033,6 @@ namespace IMGUIZMO_NAMESPACE
 		}
 
 		// restore view/projection because it was used to compute ray
-		ComputeContext(svgView.m16, svgProjection.m16, gContext.mModelSource.m16, gContext.mMode);
+		ComputeContext(cameraPos, svgView.m16, svgProjection.m16, gContext.mModelSource.m16, gContext.mMode);
 	}
-};
+	};
